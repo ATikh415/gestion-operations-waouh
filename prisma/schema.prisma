@@ -1,0 +1,319 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// ==================== ENUMS ====================
+
+enum Role {
+  DIRECTEUR
+  ACHAT
+  COMPTABLE
+  USER
+}
+
+enum RequestStatus {
+  DRAFT      // Brouillon - créé par USER
+  PENDING    // En attente - soumis, en attente de devis par ACHAT
+  QUOTED     // Devis saisis - minimum 2 devis ajoutés par ACHAT
+  APPROVED   // Approuvé par ACHAT - en attente validation DIRECTEUR
+  VALIDATED  // Validé par DIRECTEUR - en attente finalisation COMPTABLE
+  COMPLETED  // Finalisé - achat effectué par COMPTABLE
+  REJECTED   // Rejeté - à n'importe quelle étape
+}
+
+enum DocumentType {
+  RECEIPT        // Reçu de paiement
+  DELIVERY_NOTE  // Bordereau de livraison
+  INVOICE        // Facture
+  OTHER          // Autre
+}
+
+enum ApprovalAction {
+  APPROVE
+  REJECT
+}
+
+
+// Catégories de demandes internes
+enum InternalCategory {
+  INTERNET        // Internet
+  ELECTRICITY     // Électricité
+  WATER          // Eau
+  PHONE          // Téléphone
+  COFFEE         // Café / Thé
+  OFFICE_SUPPLIES // Fournitures bureau
+  MAINTENANCE    // Maintenance
+  CLEANING       // Nettoyage
+  OTHER          // Autre
+}
+
+// Statuts des demandes internes
+enum InternalStatus {
+  PENDING      // En attente validation directeur
+  APPROVED     // Approuvé par directeur
+  REJECTED     // Rejeté par directeur
+  COMPLETED    // Finalisé par ACHAT
+}
+
+// ==================== MODELS ====================
+
+// Paramètres de l'entreprise
+model CompanySettings {
+  id        String   @id @default(cuid())
+  name      String
+  logo      String?
+  address   String?
+  phone     String?
+  email     String?
+  website   String?
+  taxId     String?  // NIF/NINEA
+  currency  String   @default("XOF")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("company_settings")
+}
+
+// Départements
+model Department {
+  id          String   @id @default(cuid())
+  name        String
+  code        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users            User[]
+  purchaseRequests PurchaseRequest[]
+
+  @@map("departments")
+}
+
+// Utilisateurs
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  password     String
+  role         Role     @default(USER)
+  departmentId String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  department       Department?       @relation(fields: [departmentId], references: [id])
+  purchaseRequests PurchaseRequest[]
+  approvals        Approval[]
+  // documents        Document[]        @relation("UploadedDocuments")
+
+  @@map("users")
+  internalApprovals InternalApproval[] @relation("InternalApprovals")
+  internalDocuments InternalDocument[] @relation("UploadedInternalDocuments")
+  documents Document[]
+  internalRequests InternalRequest[] @relation("RequestedInternalRequests")
+}
+
+// Demandes d'achat
+model PurchaseRequest {
+  id              String        @id @default(cuid())
+  reference       String        @unique
+  title           String
+  description     String?
+  status          RequestStatus @default(DRAFT)
+  totalEstimated  Float         @default(0)
+  totalFinal      Float?
+  userId          String
+  departmentId    String
+  selectedQuoteId String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  user          User           @relation(fields: [userId], references: [id])
+  department    Department     @relation(fields: [departmentId], references: [id])
+  items         PurchaseItem[]
+  quotes        Quote[]
+  selectedQuote Quote?         @relation("SelectedQuote", fields: [selectedQuoteId], references: [id])
+  approvals     Approval[]
+  documents     Document[]
+
+  @@map("purchase_requests")
+}
+
+// Articles/Matériels demandés
+model PurchaseItem {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  quantity          Int
+  estimatedPrice    Float
+  purchaseRequestId String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_items")
+}
+
+// Devis
+model Quote {
+  id                String    @id @default(cuid())
+  supplierName      String
+  supplierContact   String?
+  amount            Float
+  notes             String?
+  fileUrl           String?
+  validUntil        DateTime?
+  isSelected        Boolean   @default(false)
+  purchaseRequestId String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  purchaseRequest         PurchaseRequest  @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  selectedForRequest      PurchaseRequest? @relation("SelectedQuote")
+
+  @@map("quotes")
+}
+
+// Historique des validations/approbations
+model Approval {
+  id                String         @id @default(cuid())
+  action            ApprovalAction
+  comment           String?
+  role              Role
+  userId            String
+  purchaseRequestId String
+  createdAt         DateTime       @default(now())
+
+  // Relations
+  user            User            @relation(fields: [userId], references: [id])
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@map("approvals")
+}
+
+// Documents/Pièces jointes
+model Document {
+  id                String       @id @default(cuid())
+  type              DocumentType
+  name              String
+  fileUrl           String
+  purchaseRequestId String
+  uploadedById      String
+  createdAt         DateTime     @default(now())
+
+  // Relations
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  uploadedBy      User            @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+model InternalRequest {
+  id              String              @id @default(cuid())
+  reference       String              @unique // Ex: INT-2026-0001
+  title           String              // Ex: "Facture internet janvier 2026"
+  description     String?             @db.Text // Détails optionnels
+  category        InternalCategory    // INTERNET, ELECTRICITY, etc.
+  amount          Float               // Montant
+  status          InternalStatus      @default(PENDING)
+  
+  // Relations
+  requestedById   String
+  requestedBy     User                @relation("RequestedInternalRequests", fields: [requestedById], references: [id], onDelete: Cascade)
+  
+  // Documents (optionnels)
+  documents       InternalDocument[]
+  
+  // Approbations
+  approvals       InternalApproval[]
+  
+  // Logs d'activité
+  activityLogs    ActivityLog[]       @relation("InternalRequestActivityLogs")
+  
+  // Audit
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([requestedById])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
+}
+
+
+// Documents des demandes internes
+model InternalDocument {
+  id                 String          @id @default(cuid())
+  name               String          // Nom du fichier
+  fileUrl            String          // URL du fichier
+  
+  // Relations
+  uploadedById       String
+  uploadedBy         User            @relation("UploadedInternalDocuments", fields: [uploadedById], references: [id], onDelete: Cascade)
+  
+  internalRequestId  String
+  internalRequest    InternalRequest @relation(fields: [internalRequestId], references: [id], onDelete: Cascade)
+  
+  // Audit
+  createdAt          DateTime        @default(now())
+
+  @@index([internalRequestId])
+  @@index([uploadedById])
+}
+
+// Approbations des demandes internes
+model InternalApproval {
+  id                 String          @id @default(cuid())
+  action             String          // "APPROVE" ou "REJECT"
+  comment            String?         @db.Text // Commentaire optionnel
+  
+  // Relations
+  userId             String
+  user               User            @relation("InternalApprovals", fields: [userId], references: [id], onDelete: Cascade)
+  
+  internalRequestId  String
+  internalRequest    InternalRequest @relation(fields: [internalRequestId], references: [id], onDelete: Cascade)
+  
+  // Audit
+  createdAt          DateTime        @default(now())
+
+  @@index([internalRequestId])
+  @@index([userId])
+}
+
+// Historique des actions (pour audit complet)
+model ActivityLog {
+  id          String   @id @default(cuid())
+  action      String   // CREATE, UPDATE, DELETE, APPROVE, REJECT, etc.
+  entityType  String   // PurchaseRequest, Quote, Document, etc.
+  entityId    String
+  userId      String?
+  userName    String?
+  details     Json?    // Détails supplémentaires en JSON
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_logs")
+  internalRequests InternalRequest[] @relation("InternalRequestActivityLogs")
+}
