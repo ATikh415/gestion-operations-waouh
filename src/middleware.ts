@@ -7,7 +7,7 @@ import { Role } from "@prisma/client";
 const publicRoutes = ["/login"];
 
 // Routes API à ignorer
-const apiRoutes = ["/api", "/uploads"];
+const apiRoutes = ["/api", "/uploads", "/health"];
 
 // Routes par rôle
 const roleRoutes: Record<Role, string[]> = {

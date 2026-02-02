@@ -19,13 +19,14 @@ FROM base AS deps
 # Copie uniquement les fichiers nécessaires pour installer les dépendances
 COPY package.json package-lock.json ./
 
-# Copie le schéma Prisma pour générer le client
+# Copie le schéma Prisma ET le config pour Prisma 7
 COPY prisma ./prisma/
+COPY prisma.config.ts ./
 
 # Installation des dépendances (production + dev car on a besoin de Prisma CLI)
 RUN npm ci
 
-# Génération du Prisma Client
+# Génération du Prisma Client avec le nouveau format
 RUN npx prisma generate
 
 # =====================================================
@@ -66,15 +67,19 @@ RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 # Copie des fichiers nécessaires depuis le builder
-# Next.js standalone contient tout le nécessaire
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copie Prisma pour les migrations en production
+# Copie Prisma pour les migrations en production (IMPORTANT pour Prisma 7)
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
+
+# Copie dotenv pour Prisma 7
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 
 # Script de démarrage
 COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
