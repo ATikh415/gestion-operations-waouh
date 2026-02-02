@@ -323,7 +323,7 @@ export async function changePasswordAction(
       data: {
         action: "UPDATE",
         entityType: "User",
-        entityId: validated.id,
+        entityId: validated.id || "",
         userId: session?.user?.id,
         userName: session?.user?.name,
         details: {
@@ -463,7 +463,7 @@ export async function deleteUserAction(input: DeleteUserInput): Promise<ActionRe
       data: {
         action: "DELETE",
         entityType: "User",
-        entityId: validated.id,
+        entityId: validated.id || "",
         userId: session?.user?.id,
         userName: session?.user?.name,
         details: {

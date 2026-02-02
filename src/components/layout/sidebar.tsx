@@ -26,18 +26,24 @@ export function Sidebar({ userRole, userName }: SidebarProps) {
 
   // Navigation selon le rôle
   const navigation = [
+    // {
+    //   name: "Dashboard",
+    //   href: "/dashboard",
+    //   icon: LayoutDashboard,
+    //   roles: [Role.DIRECTEUR, Role.ACHAT, Role.COMPTABLE, Role.USER],
+    // },
     {
-      name: "Dashboard",
-      href: "/dashboard",
-      icon: LayoutDashboard,
-      roles: [Role.DIRECTEUR, Role.ACHAT, Role.COMPTABLE, Role.USER],
-    },
-    {
-      name: "Demandes d'achat",
+      name: "Achats",
       href: "/requests",
       icon: FileText,
       roles: [Role.DIRECTEUR, Role.ACHAT, Role.COMPTABLE, Role.USER],
     },
+    {
+    name: "Achat Internes",
+    href: "/internal-requests",
+    icon: FileText, // ou Receipt
+    roles: [Role.ACHAT, Role.DIRECTEUR],
+  },
     {
       name: "Utilisateurs",
       href: "/users",
@@ -50,24 +56,18 @@ export function Sidebar({ userRole, userName }: SidebarProps) {
       icon: Building2,
       roles: [Role.DIRECTEUR],
     },
-    {
-      name: "Rapports",
-      href: "/reports",
-      icon: BarChart3,
-      roles: [Role.DIRECTEUR, Role.COMPTABLE],
-    },
+    // {
+    //   name: "Rapports",
+    //   href: "/reports",
+    //   icon: BarChart3,
+    //   roles: [Role.DIRECTEUR, Role.COMPTABLE],
+    // },
     {
       name: "Paramètres",
       href: "/settings",
       icon: Settings,
       roles: [Role.DIRECTEUR],
-    },
-    {
-    name: "Demandes Internes",
-    href: "/internal-requests",
-    icon: FileText, // ou Receipt
-    roles: [Role.ACHAT, Role.DIRECTEUR],
-  },
+    }
   ];
 
   const filteredNavigation = navigation.filter((item) =>
@@ -82,7 +82,7 @@ export function Sidebar({ userRole, userName }: SidebarProps) {
     <div className="flex h-full w-64 flex-col bg-red-900">
       {/* Logo */}
       <div className="flex h-16 items-center justify-center border-b border-white">
-        <h1 className="text-xl font-bold text-white">Gestion Achats</h1>
+        <h1 className="text-xl font-bold text-white">Gestion Operations</h1>
       </div>
 
       {/* Navigation */}

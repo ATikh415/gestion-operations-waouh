@@ -51,7 +51,7 @@ export default function LoginPage() {
       } else if (result?.ok) {
         toast.success("Connexion réussie !");
         // Utiliser replace au lieu de push pour empêcher le retour arrière
-        router.replace("/dashboard");
+        router.replace("/requests");
         router.refresh();
       }
     } catch (error) {

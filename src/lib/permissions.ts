@@ -44,12 +44,12 @@ export const permissions = {
 
   // Voir les rapports
   canViewReports: (role: Role): boolean => {
-    return [Role.DIRECTEUR, Role.COMPTABLE].includes(role);
+    return ([Role.DIRECTEUR, Role.COMPTABLE] as Role[]).includes(role);
   },
 
   // Voir toutes les demandes
   canViewAllRequests: (role: Role): boolean => {
-    return [Role.DIRECTEUR, Role.ACHAT, Role.COMPTABLE].includes(role);
+  return ([Role.DIRECTEUR, Role.ACHAT, Role.COMPTABLE] as Role[]).includes(role);
   },
 };
 

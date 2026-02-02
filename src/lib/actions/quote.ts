@@ -1,4 +1,5 @@
 
+
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -17,6 +18,8 @@ import {
   type DeleteQuoteInput,
 } from "@/lib/validations/quote";
 import { prisma } from "../prisma";
+import { sendEmail } from "../email/nodemailer";
+import { getApprovedByAchatEmail } from "../email/purchase-request-templates";
 
 /**
  * Type de retour pour les actions
@@ -56,8 +59,6 @@ export async function addQuoteAction(input: AddQuoteInput): Promise<ActionRespon
     // Valider les données
     const validated = addQuoteSchema.parse(input);
 
-    // Import dynamique de Prisma
-
     // Vérifier que la demande existe et est en PENDING
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: validated.purchaseRequestId },
@@ -82,8 +83,7 @@ export async function addQuoteAction(input: AddQuoteInput): Promise<ActionRespon
         supplierContact: validated.supplierContact || null,
         amount: validated.totalAmount,
         validUntil: new Date(validated.validUntil),
-        // : validated.notes || null,
-        purchaseRequestId: validated.purchaseRequestId,
+        purchaseRequestId: validated.purchaseRequestId || "",
       },
     });
 
@@ -133,8 +133,6 @@ export async function selectQuoteAction(
 
     // Valider les données
     const validated = selectQuoteSchema.parse(input);
-
-    // Import dynamique de Prisma
 
     // Vérifier que la demande existe
     const request = await prisma.purchaseRequest.findUnique({
@@ -200,6 +198,7 @@ export async function selectQuoteAction(
 
 /**
  * Approuver une demande d'achat (PENDING → APPROVED)
+ * ✅ ENVOIE EMAIL AU DIRECTEUR
  */
 export async function approveRequestAction(
   input: ApproveRequestInput
@@ -212,12 +211,15 @@ export async function approveRequestAction(
     // Valider les données
     const validated = approveRequestSchema.parse(input);
 
-    // Import dynamique de Prisma
-
     // Vérifier que la demande existe
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: validated.purchaseRequestId },
-      include: { quotes: true },
+      include: {
+        quotes: true,
+        selectedQuote: true,
+        user: true,
+        department: true,
+      },
     });
 
     if (!request) {
@@ -240,7 +242,7 @@ export async function approveRequestAction(
     }
 
     // Vérifier qu'un devis a été sélectionné
-    if (!request.selectedQuoteId) {
+    if (!request.selectedQuoteId || !request.selectedQuote) {
       return {
         success: false,
         error: "Vous devez sélectionner un devis avant d'approuver",
@@ -248,15 +250,15 @@ export async function approveRequestAction(
     }
 
     const session = await auth();
-    console.log({"USER": session?.user.role});
-    
-    if(!session?.user || !validated.purchaseRequestId){
- return {
+
+    if (!session?.user || !validated.purchaseRequestId) {
+      return {
         success: false,
-        error: "Vous devez sélectionner un devis avant d'approuver",
+        error: "Session invalide",
       };
     }
-  // Mettre à jour le statut de la demande
+
+    // Mettre à jour le statut de la demande
     const updatedRequest = await prisma.purchaseRequest.update({
       where: { id: validated.purchaseRequestId },
       data: { status: RequestStatus.APPROVED },
@@ -267,8 +269,8 @@ export async function approveRequestAction(
       data: {
         action: "APPROVE",
         comment: validated.comment || null,
-        userId: session?.user?.id,
-        role: session?.user.role,
+        userId: session.user.id,
+        role: session.user.role,
         purchaseRequestId: validated.purchaseRequestId,
       },
     });
@@ -279,8 +281,8 @@ export async function approveRequestAction(
         action: "UPDATE",
         entityType: "PurchaseRequest",
         entityId: updatedRequest.id,
-        userId: session?.user?.id,
-        userName: session?.user?.name,
+        userId: session.user.id,
+        userName: session.user.name,
         details: {
           action: "approved",
           reference: updatedRequest.reference,
@@ -289,12 +291,54 @@ export async function approveRequestAction(
       },
     });
 
+    // ✅ ENVOYER EMAIL AU DIRECTEUR
+    try {
+      // Récupérer les emails des DIRECTEURS
+      const directeurs = await prisma.user.findMany({
+        where: { role: Role.DIRECTEUR, isActive: true },
+        select: { email: true },
+      });
+
+      if (directeurs.length > 0) {
+        const requestUrl = `${process.env.NEXT_PUBLIC_APP_URL}/requests/${request.id}`;
+
+        const emailTemplate = getApprovedByAchatEmail({
+          reference: request.reference,
+          title: request.title,
+          requesterName: request.user.name,
+          department: request.department.name,
+          selectedSupplier: request.selectedQuote.supplierName,
+          selectedAmount: request.selectedQuote.amount,
+          quotesCount: request.quotes.length,
+          approverName: session.user.name || "",
+          comment: validated.comment || "",
+          requestUrl,
+        });
+
+        // Envoyer à tous les DIRECTEURS
+        await Promise.all(
+          directeurs.map((directeur) =>
+            sendEmail({
+              to: directeur.email,
+              subject: emailTemplate.subject,
+              html: emailTemplate.html,
+            })
+          )
+        );
+
+        console.log(
+          `✅ Email envoyé à ${directeurs.length} directeur(s)`
+        );
+      }
+    } catch (emailError) {
+      console.error("❌ Erreur envoi email:", emailError);
+      // Ne pas bloquer l'approbation si l'email échoue
+    }
+
     revalidatePath("/requests");
     revalidatePath(`/requests/${validated.purchaseRequestId}`);
 
     return { success: true, data: updatedRequest };
-    
-    
   } catch (error: any) {
     console.error("Erreur approveRequestAction:", error);
 
@@ -320,8 +364,6 @@ export async function rejectRequestAction(
     // Valider les données
     const validated = rejectRequestSchema.parse(input);
 
-    // Import dynamique de Prisma
-
     // Vérifier que la demande existe
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: validated.purchaseRequestId },
@@ -340,12 +382,13 @@ export async function rejectRequestAction(
 
     const session = await auth();
 
-    if(!session?.user || !validated.purchaseRequestId){
- return {
+    if (!session?.user || !validated.purchaseRequestId) {
+      return {
         success: false,
-        error: "Vous devez sélectionner un devis avant de le rejeter",
+        error: "Session invalide",
       };
     }
+
     // Mettre à jour le statut de la demande
     const updatedRequest = await prisma.purchaseRequest.update({
       where: { id: validated.purchaseRequestId },
@@ -357,7 +400,7 @@ export async function rejectRequestAction(
       data: {
         action: "REJECT",
         comment: validated.comment,
-        userId: session?.user?.id,
+        userId: session.user.id,
         role: session.user.role,
         purchaseRequestId: validated.purchaseRequestId,
       },
@@ -369,8 +412,8 @@ export async function rejectRequestAction(
         action: "UPDATE",
         entityType: "PurchaseRequest",
         entityId: updatedRequest.id,
-        userId: session?.user?.id,
-        userName: session?.user?.name,
+        userId: session.user.id,
+        userName: session.user.name,
         details: {
           action: "rejected",
           reference: updatedRequest.reference,
@@ -407,8 +450,6 @@ export async function deleteQuoteAction(
 
     // Valider les données
     const validated = deleteQuoteSchema.parse(input);
-
-    // Import dynamique de Prisma
 
     // Vérifier que le devis existe
     const quote = await prisma.quote.findUnique({
@@ -447,7 +488,7 @@ export async function deleteQuoteAction(
       data: {
         action: "DELETE",
         entityType: "Quote",
-        entityId: validated.quoteId,
+        entityId: validated.quoteId || "",
         userId: session?.user?.id,
         userName: session?.user?.name,
         details: {

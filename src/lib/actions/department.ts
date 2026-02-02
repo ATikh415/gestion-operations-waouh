@@ -313,7 +313,7 @@ export async function deleteDepartmentAction(
       data: {
         action: "DELETE",
         entityType: "Department",
-        entityId: validated.id,
+        entityId: validated.id || "",
         details: {
           name: department.name,
           code: department.code,

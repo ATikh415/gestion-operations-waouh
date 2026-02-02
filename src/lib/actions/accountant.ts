@@ -12,6 +12,8 @@ import {
   type FinalizeRequestInput,
 } from "@/lib/validations/accountant";
 import { prisma } from "../prisma";
+import { sendEmail } from "../email/nodemailer";
+import { getFinalizedRequestEmail } from "../email/purchase-request-templates";
 
 /**
  * Type de retour pour les actions
@@ -77,7 +79,7 @@ export async function addDocumentAction(
         type: validated.type,
         name: validated.name,
         fileUrl: validated.fileUrl,
-        purchaseRequestId: validated.purchaseRequestId,
+        purchaseRequestId: validated.purchaseRequestId || "",
         uploadedById: session?.user?.id || "",
       },
     });
@@ -157,7 +159,7 @@ export async function deleteDocumentAction(
       data: {
         action: "DELETE",
         entityType: "Document",
-        entityId: validated.documentId,
+        entityId: validated.documentId || "",
         userId: session?.user?.id,
         userName: session?.user?.name,
         details: {
@@ -180,6 +182,7 @@ export async function deleteDocumentAction(
 
 /**
  * Finaliser une demande d'achat (VALIDATED → COMPLETED)
+ * ✅ ENVOIE EMAIL AU USER + ACHAT + DIRECTEUR
  */
 export async function finalizeRequestAction(
   input: FinalizeRequestInput
@@ -195,7 +198,12 @@ export async function finalizeRequestAction(
     // Vérifier que la demande existe
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: validated.purchaseRequestId },
-      include: { documents: true },
+      include: {
+        documents: true,
+        selectedQuote: true,
+        user: true,
+        department: true,
+      },
     });
 
     if (!request) {
@@ -217,6 +225,13 @@ export async function finalizeRequestAction(
       };
     }
 
+    if (!request.selectedQuote) {
+      return {
+        success: false,
+        error: "Aucun devis sélectionné",
+      };
+    }
+
     const session = await auth();
 
     // Mettre à jour le statut de la demande
@@ -232,7 +247,7 @@ export async function finalizeRequestAction(
         comment: "Achat finalisé",
         role: Role.COMPTABLE,
         userId: session?.user?.id || "",
-        purchaseRequestId: validated.purchaseRequestId,
+        purchaseRequestId: validated.purchaseRequestId || "",
       },
     });
 
@@ -251,6 +266,63 @@ export async function finalizeRequestAction(
         },
       },
     });
+
+    // ✅ ENVOYER EMAIL À TOUS (USER + ACHAT + DIRECTEUR)
+    try {
+      const requestUrl = `${process.env.NEXT_PUBLIC_APP_URL}/requests/${request.id}`;
+
+      const emailTemplate = getFinalizedRequestEmail({
+        reference: request.reference,
+        title: request.title,
+        requesterName: request.user.name,
+        department: request.department.name,
+        selectedSupplier: request.selectedQuote.supplierName,
+        totalFinal: request.totalFinal || request.totalEstimated,
+        documentsCount: request.documents.length,
+        finalizerName: session?.user?.name || "Comptable",
+        requestUrl,
+      });
+
+      // Liste des destinataires
+      const recipients: string[] = [];
+
+      // 1. USER (demandeur)
+      recipients.push(request.user.email);
+
+      // 2. Service ACHAT
+      const achatUsers = await prisma.user.findMany({
+        where: { role: Role.ACHAT, isActive: true },
+        select: { email: true },
+      });
+      recipients.push(...achatUsers.map((u) => u.email));
+
+      // 3. DIRECTEURS
+      const directeurs = await prisma.user.findMany({
+        where: { role: Role.DIRECTEUR, isActive: true },
+        select: { email: true },
+      });
+      recipients.push(...directeurs.map((d) => d.email));
+
+      // Envoyer à tous
+      if (recipients.length > 0) {
+        await Promise.all(
+          recipients.map((email) =>
+            sendEmail({
+              to: email,
+              subject: emailTemplate.subject,
+              html: emailTemplate.html,
+            })
+          )
+        );
+
+        console.log(
+          `✅ Email de finalisation envoyé à ${recipients.length} destinataire(s)`
+        );
+      }
+    } catch (emailError) {
+      console.error("❌ Erreur envoi email:", emailError);
+      // Ne pas bloquer la finalisation si l'email échoue
+    }
 
     revalidatePath("/requests");
     revalidatePath(`/requests/${validated.purchaseRequestId}`);

@@ -1,28 +1,33 @@
-// src/app/(dashboard)/internal-requests/page.tsx
 
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { Role } from "@prisma/client";
-import { 
-  internalCategoryLabels, 
-  internalCategoryIcons 
-} from "@/lib/validations/internal-request";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-import Link from "next/link";
-import { FileText, Calendar, User, TrendingUp } from "lucide-react";
+import { Role, InternalStatus, InternalCategory } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import CreateInternalModal from "./_components/create-internal-modal";
-import InternalStatusBadge from "./_components/internal-status-badge";
+import InternalRequestsFilters from "./_components/internal-requests-filters";
+import InternalRequestsServerTable from "./_components/internal-requests-server-table";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata = {
   title: "Demandes Internes | Gestion des Achats",
   description: "Liste des demandes internes",
 };
 
-export default async function InternalRequestsPage() {
+type SearchParams = {
+  search?: string;
+  status?: string;
+  category?: string;
+  page?: string;
+  perPage?: string;
+};
+
+export default async function InternalRequestsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   // Vérifier l'authentification
   const session = await auth();
+  const { search, status, category, page, perPage} = await searchParams
 
   if (!session?.user) {
     redirect("/login");
@@ -36,8 +41,41 @@ export default async function InternalRequestsPage() {
     redirect("/dashboard");
   }
 
-  // Récupérer les demandes internes
+  // ✅ Paramètres de recherche et pagination
+  const searchFilter = search || "";
+  const statusFilter = status || "all";
+  const categoryFilter = category || "all";
+  const pageFilter = parseInt(page || "1");
+  const perPageFilter = parseInt(perPage || "10");
+
+  // ✅ Construire les filtres Prisma
+  const where: any = {};
+
+  // Filtre recherche
+  if (search) {
+    where.OR = [
+      { reference: { contains: search, mode: "insensitive" } },
+      { title: { contains: search, mode: "insensitive" } },
+      { requestedBy: { name: { contains: search, mode: "insensitive" } } },
+    ];
+  }
+
+  // Filtre statut
+  if (statusFilter !== "all") {
+    where.status = statusFilter as InternalStatus;
+  }
+
+  // Filtre catégorie
+  if (categoryFilter !== "all") {
+    where.category = categoryFilter as InternalCategory;
+  }
+
+  // ✅ Compter le total (pour pagination)
+  const totalCount = await prisma.internalRequest.count({ where });
+
+  // ✅ Récupérer SEULEMENT les demandes de la page actuelle
   const internalRequests = await prisma.internalRequest.findMany({
+    where,
     include: {
       requestedBy: {
         select: {
@@ -49,43 +87,34 @@ export default async function InternalRequestsPage() {
     orderBy: {
       createdAt: "desc",
     },
+    skip: (pageFilter - 1) * perPageFilter,
+    take: perPageFilter,
   });
 
-  // Statistiques
-  const stats = {
-    total: internalRequests.length,
-    pending: internalRequests.filter((r) => r.status === "PENDING").length,
-    approved: internalRequests.filter((r) => r.status === "APPROVED").length,
-    completed: internalRequests.filter((r) => r.status === "COMPLETED").length,
+  // ✅ Statistiques (sans filtres pour avoir le total global)
+  const stats = await prisma.internalRequest.groupBy({
+    by: ["status"],
+    _count: true,
+  });
+
+  const statsFormatted = {
+    total: await prisma.internalRequest.count(),
+    pending: stats.find((s) => s.status === InternalStatus.PENDING)?._count || 0,
+    approved: stats.find((s) => s.status === InternalStatus.APPROVED)?._count || 0,
+    completed: stats.find((s) => s.status === InternalStatus.COMPLETED)?._count || 0,
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "XOF",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const formatDate = (date: Date) => {
-    return new Date(date).toLocaleDateString("fr-FR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  };
+  // Calcul pagination
+  const totalPages = Math.ceil(totalCount / perPageFilter);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Demandes Internes</h1>
-          <p className="text-muted-foreground mt-1">
-            Gestion des dépenses courantes (internet, électricité, etc.)
-          </p>
-        </div>
-        {session.user.role === Role.ACHAT && <CreateInternalModal />}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Demandes Internes</h1>
+        <p className="text-muted-foreground mt-1">
+          Gestion des dépenses courantes (internet, électricité, etc.)
+        </p>
       </div>
 
       {/* Statistiques */}
@@ -93,10 +122,9 @@ export default async function InternalRequestsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
+            <div className="text-2xl font-bold">{statsFormatted.total}</div>
             <p className="text-xs text-muted-foreground">demandes</p>
           </CardContent>
         </Card>
@@ -104,10 +132,11 @@ export default async function InternalRequestsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">En attente</CardTitle>
-            <TrendingUp className="h-4 w-4 text-amber-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.pending}</div>
+            <div className="text-2xl font-bold text-amber-600">
+              {statsFormatted.pending}
+            </div>
             <p className="text-xs text-muted-foreground">à valider</p>
           </CardContent>
         </Card>
@@ -115,10 +144,11 @@ export default async function InternalRequestsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Approuvées</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.approved}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {statsFormatted.approved}
+            </div>
             <p className="text-xs text-muted-foreground">à finaliser</p>
           </CardContent>
         </Card>
@@ -126,99 +156,32 @@ export default async function InternalRequestsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Finalisées</CardTitle>
-            <TrendingUp className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.completed}</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {statsFormatted.completed}
+            </div>
             <p className="text-xs text-muted-foreground">terminées</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Liste des demandes */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Toutes les demandes ({internalRequests.length})</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {internalRequests.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Aucune demande interne</h3>
-              <p className="text-muted-foreground mb-4">
-                {session.user.role === Role.ACHAT
-                  ? "Créez votre première demande interne"
-                  : "Aucune demande en attente de validation"}
-              </p>
-              {session.user.role === Role.ACHAT && <CreateInternalModal />}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {internalRequests.map((request) => (
-                <Link
-                  key={request.id}
-                  href={`/internal-requests/${request.id}`}
-                  className="block"
-                >
-                  <Card className="hover:bg-accent/50 transition-colors cursor-pointer">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        {/* Infos principales */}
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-start gap-3">
-                            <span className="text-2xl">
-                              {internalCategoryIcons[request.category]}
-                            </span>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-semibold text-sm text-muted-foreground">
-                                  {request.reference}
-                                </span>
-                                <InternalStatusBadge status={request.status} />
-                              </div>
-                              <h3 className="font-semibold text-lg">
-                                {request.title}
-                              </h3>
-                              <p className="text-sm text-muted-foreground">
-                                {internalCategoryLabels[request.category]}
-                              </p>
-                            </div>
-                          </div>
+      {/* Filtres (Client Component) */}
+      <InternalRequestsFilters
+        userRole={session.user.role}
+        currentSearch={searchFilter}
+        currentStatus={statusFilter}
+        currentCategory={categoryFilter}
+      />
 
-                          {/* Métadonnées */}
-                          <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              <span>{request.requestedBy.name}</span>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              <span>{formatDate(request.createdAt)}</span>
-                            </div>
-                            {request.documents.length > 0 && (
-                              <div className="flex items-center gap-1">
-                                <FileText className="h-3 w-3" />
-                                <span>{request.documents.length} document(s)</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Montant */}
-                        <div className="text-right">
-                          <p className="text-2xl font-bold">
-                            {formatCurrency(request.amount)}
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Tableau avec pagination (Server Component) */}
+      <InternalRequestsServerTable
+        requests={internalRequests}
+        totalCount={totalCount}
+        currentPage={pageFilter}
+        perPage={perPageFilter}
+        totalPages={totalPages}
+      />
     </div>
   );
 }

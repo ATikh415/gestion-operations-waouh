@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(bytes);
 
     // Compresser si c'est une image
-    let processedBuffer = buffer;
+    let processedBuffer: any;
     const originalSize = buffer.length;
     
     if (file.type.startsWith("image/")) {

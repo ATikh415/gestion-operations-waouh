@@ -1,8 +1,5 @@
-// src/app/(dashboard)/users/components/user-modal.tsx
-
 "use client";
 
-import { useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -26,28 +23,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import {
   createUserSchema,
-  updateUserSchema,
   roleLabels,
   roleDescriptions,
   type CreateUserInput,
-  type UpdateUserInput,
 } from "@/lib/validations/user";
-import {
-  createUserAction,
-  updateUserAction,
-} from "@/lib/actions/user";
-
-type User = {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-  departmentId: string | null;
-  isActive: boolean;
-};
+import { createUserAction } from "@/lib/actions/user";
 
 type Department = {
   id: string;
@@ -55,23 +37,19 @@ type Department = {
   code: string;
 };
 
-type UserModalProps = {
+type CreateUserModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  user: User | null;
   departments: Department[];
   onSuccess: (user?: any) => void;
 };
 
-export default function UserModal({
+export default function CreateUserModal({
   open,
   onOpenChange,
-  user,
   departments,
   onSuccess,
-}: UserModalProps) {
-  const isEditing = !!user;
-
+}: CreateUserModalProps) {
   const {
     register,
     handleSubmit,
@@ -79,63 +57,27 @@ export default function UserModal({
     reset,
     setValue,
     watch,
-  } = useForm<CreateUserInput | UpdateUserInput>({
-    resolver: zodResolver(isEditing ? updateUserSchema : createUserSchema),
+  } = useForm<CreateUserInput>({
+    resolver: zodResolver(createUserSchema),
     defaultValues: {
       email: "",
       name: "",
       password: "",
       role: Role.USER,
       departmentId: null,
-      ...(isEditing && { isActive: true }),
+      isActive: true,
     },
   });
 
   const selectedRole = watch("role");
   const selectedDepartmentId = watch("departmentId");
-  const isActive = watch("isActive");
 
-  // Charger les données de l'utilisateur à modifier
-  useEffect(() => {
-    if (user) {
-      setValue("email", user.email);
-      setValue("name", user.name);
-      setValue("role", user.role);
-      setValue("departmentId", user.departmentId);
-      setValue("isActive", user.isActive);
-    } else {
-      reset({
-        email: "",
-        name: "",
-        password: "",
-        role: Role.USER,
-        departmentId: null,
-      });
-    }
-  }, [user, setValue, reset]);
-
-  // Soumettre le formulaire
-  const onSubmit = async (data: CreateUserInput | UpdateUserInput) => {
+  const onSubmit = async (data: CreateUserInput) => {
     try {
-      let result;
-
-      if (isEditing && user) {
-        // Modification
-        result = await updateUserAction({
-          ...data,
-          id: user.id,
-        } as UpdateUserInput);
-      } else {
-        // Création
-        result = await createUserAction(data as CreateUserInput);
-      }
+      const result = await createUserAction(data);
 
       if (result.success) {
-        toast.success(
-          isEditing
-            ? "Utilisateur modifié avec succès"
-            : "Utilisateur créé avec succès"
-        );
+        toast.success("Utilisateur créé avec succès");
         onSuccess(result.data);
         onOpenChange(false);
         reset();
@@ -147,17 +89,15 @@ export default function UserModal({
     }
   };
 
+  const needsDepartment = selectedRole === Role.USER;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-150 max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-137.5 max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
-            {isEditing ? "Modifier l'utilisateur" : "Nouvel utilisateur"}
-          </DialogTitle>
+          <DialogTitle>Nouvel utilisateur</DialogTitle>
           <DialogDescription>
-            {isEditing
-              ? "Modifiez les informations de l'utilisateur"
-              : "Créez un nouveau compte utilisateur pour votre entreprise"}
+            Créez un nouveau compte utilisateur pour votre entreprise
           </DialogDescription>
         </DialogHeader>
 
@@ -195,27 +135,25 @@ export default function UserModal({
             )}
           </div>
 
-          {/* Mot de passe (seulement en création) */}
-          {!isEditing && (
-            <div className="space-y-2">
-              <Label htmlFor="password">
-                Mot de passe <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                {...register("password")}
-                disabled={isSubmitting}
-              />
-              {errors.password && (
-                <p className="text-sm text-destructive">{errors.password.message}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Minimum 8 caractères requis
-              </p>
-            </div>
-          )}
+          {/* Mot de passe */}
+          <div className="space-y-2">
+            <Label htmlFor="password">
+              Mot de passe <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              {...register("password")}
+              disabled={isSubmitting}
+            />
+            {errors.password && (
+              <p className="text-sm text-destructive">{errors.password.message}</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Minimum 8 caractères requis
+            </p>
+          </div>
 
           {/* Rôle */}
           <div className="space-y-2">
@@ -250,7 +188,9 @@ export default function UserModal({
 
           {/* Département */}
           <div className="space-y-2">
-            <Label htmlFor="department">Département</Label>
+            <Label htmlFor="department">
+              Département {needsDepartment && <span className="text-destructive">*</span>}
+            </Label>
             <Select
               value={selectedDepartmentId || "none"}
               onValueChange={(value) =>
@@ -282,30 +222,12 @@ export default function UserModal({
                 {errors.departmentId.message}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Les utilisateurs de type USER doivent être associés à un département
-            </p>
+            {needsDepartment && (
+              <p className="text-xs text-amber-600">
+                ⚠️ Obligatoire pour les utilisateurs de type USER
+              </p>
+            )}
           </div>
-
-          {/* Statut actif (seulement en modification) */}
-          {isEditing && (
-            <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label htmlFor="isActive">Statut du compte</Label>
-                <p className="text-sm text-muted-foreground">
-                  {isActive
-                    ? "L'utilisateur peut se connecter et utiliser l'application"
-                    : "L'utilisateur ne peut pas se connecter"}
-                </p>
-              </div>
-              <Switch
-                id="isActive"
-                checked={isActive}
-                onCheckedChange={(checked) => setValue("isActive", checked)}
-                disabled={isSubmitting}
-              />
-            </div>
-          )}
 
           <DialogFooter>
             <Button
@@ -316,11 +238,9 @@ export default function UserModal({
             >
               Annuler
             </Button>
-            <Button 
-
-            type="submit" disabled={isSubmitting} >
+            <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isEditing ? "Modifier" : "Créer"}
+              Créer l'utilisateur
             </Button>
           </DialogFooter>
         </form>

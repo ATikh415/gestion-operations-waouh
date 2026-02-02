@@ -15,6 +15,7 @@ import {
 import InternalStatusBadge from "../_components/internal-status-badge";
 import ApproveSection from "./_components/approve-section";
 import FinalizeSection from "./_components/finalize-section";
+import { InternalCategory } from "@prisma/client";
 
 type InternalRequestClientProps = {
   request: any;
@@ -74,12 +75,13 @@ export default function InternalRequestClient({
             {/* Catégorie */}
             <div className="flex items-center gap-3">
               <span className="text-3xl">
-                {internalCategoryIcons[request.category]}
+{internalCategoryIcons[request.category as InternalCategory]}
+
               </span>
               <div>
                 <p className="text-sm text-muted-foreground">Catégorie</p>
                 <p className="font-semibold">
-                  {internalCategoryLabels[request.category]}
+                  {internalCategoryLabels[request.category as InternalCategory]}
                 </p>
               </div>
             </div>

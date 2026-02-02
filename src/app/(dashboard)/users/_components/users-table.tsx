@@ -42,23 +42,8 @@ import {
 } from "@/lib/actions/user";
 import { roleLabels } from "@/lib/validations/user";
 import ChangePasswordModal from "./change-password-modal";
+import { User } from "../users-client";
 
-type User = {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-  departmentId: string | null;
-  isActive: boolean;
-  department: {
-    name: string;
-    code: string;
-  } | null;
-  _count: {
-    purchaseRequests: number;
-    approvals: number;
-  };
-};
 
 type UsersTableProps = {
   users: User[];

@@ -3,12 +3,86 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getPurchaseRequestByIdAction, getPurchaseRequestsAction } from "@/lib/actions/purchase-request";
+import { ActionResponse } from "@/lib/actions/purchase-request";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import RequestDetailsClient from "./request-details-client";
+import { prisma } from "@/lib/prisma";
+import { Role } from "@prisma/client";
 
 
+/**
+ * Récupérer une demande d'achat par son ID
+ */
+export async function getPurchaseRequestByIdAction(
+  id: string
+): Promise<ActionResponse> {
+  try {
+    const session = await auth();
+
+    if (!session?.user) {
+      return { success: false, error: "Non authentifié" };
+    }
+
+    // Import dynamique de Prisma
+
+    const request = await prisma.purchaseRequest.findUnique({
+      where: { id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        department: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
+        items: true,
+        quotes: true,
+        approvals: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        },
+        documents: true,
+        selectedQuote: true,
+      },
+    });
+
+    if (!request) {
+      return { success: false, error: "Demande non trouvée" };
+    }
+
+    // Vérifier les permissions
+    if (
+      session.user.role === Role.USER &&
+      request.userId !== session.user.id
+    ) {
+      return { success: false, error: "Accès refusé" };
+    }
+
+    return { success: true, data: request };
+  } catch (error) {
+    console.error("Erreur getPurchaseRequestByIdAction:", error);
+    return {
+      success: false,
+      error: "Erreur lors de la récupération de la demande",
+    };
+  }
+}
 
 /**
  * Page de gestion des demandes d'achat

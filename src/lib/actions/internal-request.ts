@@ -194,13 +194,15 @@ export async function approveInternalRequestAction(
       include: { requestedBy: true },
     });
 
+  
+
     // Créer l'approbation
     await prisma.internalApproval.create({
       data: {
         action: "APPROVE",
         comment: validated.comment,
         userId: session.user.id,
-        internalRequestId: validated.internalRequestId,
+        internalRequestId: validated.internalRequestId || "",
       },
     });
 
@@ -303,7 +305,7 @@ export async function rejectInternalRequestAction(
         action: "REJECT",
         comment: validated.comment,
         userId: session.user.id,
-        internalRequestId: validated.internalRequestId,
+        internalRequestId: validated.internalRequestId || "",
       },
     });
 
@@ -476,7 +478,7 @@ export async function addInternalDocumentAction(
         name: validated.name,
         fileUrl: validated.fileUrl,
         uploadedById: session.user.id,
-        internalRequestId: validated.internalRequestId,
+        internalRequestId: validated.internalRequestId || "",
       },
     });
 
@@ -564,7 +566,7 @@ export async function deleteInternalDocumentAction(
       data: {
         action: "DELETE",
         entityType: "InternalDocument",
-        entityId: validated.documentId,
+        entityId: validated.documentId || "",
         userId: session.user.id,
         userName: session.user.name,
         details: {

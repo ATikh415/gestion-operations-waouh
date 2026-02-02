@@ -96,7 +96,7 @@ export default function CreateInternalModal() {
           {/* Titre */}
           <div className="grid gap-2">
             <Label htmlFor="title">
-              Titre <span className="text-destructive">*</span>
+              Objet <span className="text-destructive">*</span>
             </Label>
             <Input
               id="title"

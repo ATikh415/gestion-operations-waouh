@@ -1,4 +1,5 @@
 
+
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -15,11 +16,13 @@ import {
   type DeletePurchaseRequestInput,
 } from "@/lib/validations/purchase-request";
 import { prisma } from "../prisma";
+import { sendEmail } from "../email/nodemailer";
+import { getSubmittedRequestEmail } from "../email/purchase-request-templates";
 
 /**
  * Type de retour pour les actions
  */
-type ActionResponse<T = any> = {
+export type ActionResponse<T = any> = {
   success: boolean;
   data?: T;
   error?: string;
@@ -37,142 +40,10 @@ function generateReference(): string {
 }
 
 /**
- * Récupérer les demandes d'achat de l'utilisateur connecté
- */
-export async function getPurchaseRequestsAction(): Promise<ActionResponse> {
-  try {
-    const session = await auth();
-
-    if (!session?.user) {
-      return { success: false, error: "Non authentifié" };
-    }
-
-    // Filtrer selon le rôle
-    const where: any = {};
-
-    if (session.user.role === Role.USER) {
-      // Les USER ne voient que leurs propres demandes
-      where.userId = session.user.id;
-    }
-    // Les autres rôles (ACHAT, COMPTABLE, DIRECTEUR) voient toutes les demandes
-
-    const requests = await prisma.purchaseRequest.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        department: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        items: true,
-        _count: {
-          select: {
-            quotes: true,
-            approvals: true,
-            documents: true,
-          },
-        },
-      },
-    });
-
-    return { success: true, data: requests };
-  } catch (error) {
-    console.error("Erreur getPurchaseRequestsAction:", error);
-    return {
-      success: false,
-      error: "Erreur lors de la récupération des demandes",
-    };
-  }
-}
-
-/**
- * Récupérer une demande d'achat par son ID
- */
-export async function getPurchaseRequestByIdAction(
-  id: string
-): Promise<ActionResponse> {
-  try {
-    const session = await auth();
-
-    if (!session?.user) {
-      return { success: false, error: "Non authentifié" };
-    }
-
-    // Import dynamique de Prisma
-
-    const request = await prisma.purchaseRequest.findUnique({
-      where: { id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-          },
-        },
-        department: {
-          select: {
-            id: true,
-            name: true,
-            code: true,
-          },
-        },
-        items: true,
-        quotes: true,
-        approvals: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-              },
-            },
-          },
-          orderBy: { createdAt: "desc" },
-        },
-        documents: true,
-        selectedQuote: true,
-      },
-    });
-
-    if (!request) {
-      return { success: false, error: "Demande non trouvée" };
-    }
-
-    // Vérifier les permissions
-    if (
-      session.user.role === Role.USER &&
-      request.userId !== session.user.id
-    ) {
-      return { success: false, error: "Accès refusé" };
-    }
-
-    return { success: true, data: request };
-  } catch (error) {
-    console.error("Erreur getPurchaseRequestByIdAction:", error);
-    return {
-      success: false,
-      error: "Erreur lors de la récupération de la demande",
-    };
-  }
-}
-
-/**
  * Créer une nouvelle demande d'achat (DRAFT)
  */
 export async function createPurchaseRequestAction(
-  input: CreatePurchaseRequestInput
+  input: CreatePurchaseRequestInput,
 ): Promise<ActionResponse> {
   try {
     const session = await auth();
@@ -185,19 +56,18 @@ export async function createPurchaseRequestAction(
     if (!session.user.departmentId) {
       return {
         success: false,
-        error: "Vous devez être associé à un département pour créer une demande",
+        error:
+          "Vous devez être associé à un département pour créer une demande",
       };
     }
 
     // Valider les données
     const validated = createPurchaseRequestSchema.parse(input);
 
-    // Import dynamique de Prisma
-
     // Calculer le total estimé
     const totalEstimated = validated.items.reduce(
       (sum, item) => sum + item.quantity * item.estimatedPrice,
-      0
+      0,
     );
 
     // Créer la demande avec ses items
@@ -262,7 +132,7 @@ export async function createPurchaseRequestAction(
  * Modifier une demande d'achat (uniquement en DRAFT)
  */
 export async function updatePurchaseRequestAction(
-  input: UpdatePurchaseRequestInput
+  input: UpdatePurchaseRequestInput,
 ): Promise<ActionResponse> {
   try {
     const session = await auth();
@@ -273,8 +143,6 @@ export async function updatePurchaseRequestAction(
 
     // Valider les données
     const validated = updatePurchaseRequestSchema.parse(input);
-
-    // Import dynamique de Prisma
 
     // Vérifier que la demande existe et est modifiable
     const existingRequest = await prisma.purchaseRequest.findUnique({
@@ -302,7 +170,7 @@ export async function updatePurchaseRequestAction(
     // Calculer le nouveau total estimé
     const totalEstimated = validated.items.reduce(
       (sum, item) => sum + item.quantity * item.estimatedPrice,
-      0
+      0,
     );
 
     // Supprimer les anciens items
@@ -367,9 +235,10 @@ export async function updatePurchaseRequestAction(
 
 /**
  * Soumettre une demande d'achat (DRAFT → PENDING)
+ * ✅ ENVOIE EMAIL AU SERVICE ACHAT
  */
 export async function submitPurchaseRequestAction(
-  input: SubmitPurchaseRequestInput
+  input: SubmitPurchaseRequestInput,
 ): Promise<ActionResponse> {
   try {
     const session = await auth();
@@ -384,7 +253,11 @@ export async function submitPurchaseRequestAction(
     // Vérifier que la demande existe
     const request = await prisma.purchaseRequest.findUnique({
       where: { id: validated.id },
-      include: { items: true },
+      include: {
+        items: true,
+        department: true,
+        user: true,
+      },
     });
 
     if (!request) {
@@ -434,6 +307,47 @@ export async function submitPurchaseRequestAction(
       },
     });
 
+    // ✅ ENVOYER EMAIL AU SERVICE ACHAT
+    try {
+      // Récupérer les emails du service ACHAT
+      const achatUsers = await prisma.user.findMany({
+        where: { role: Role.ACHAT, isActive: true },
+        select: { email: true },
+      });
+
+      if (achatUsers.length > 0) {
+        const requestUrl = `${process.env.NEXT_PUBLIC_APP_URL}/requests/${request.id}`;
+
+        const emailTemplate = getSubmittedRequestEmail({
+          reference: request.reference,
+          title: request.title,
+          requesterName: request.user.name,
+          department: request.department.name,
+          itemsCount: request.items.length,
+          totalEstimated: request.totalEstimated,
+          requestUrl,
+        });
+
+        // Envoyer à tous les utilisateurs ACHAT
+        await Promise.all(
+          achatUsers.map((user) =>
+            sendEmail({
+              to: user.email,
+              subject: emailTemplate.subject,
+              html: emailTemplate.html,
+            })
+          )
+        );
+
+        console.log(
+          `✅ Email envoyé à ${achatUsers.length} utilisateur(s) ACHAT`
+        );
+      }
+    } catch (emailError) {
+      console.error("❌ Erreur envoi email:", emailError);
+      // Ne pas bloquer la soumission si l'email échoue
+    }
+
     revalidatePath("/requests");
     revalidatePath(`/requests/${updatedRequest.id}`);
 
@@ -451,7 +365,7 @@ export async function submitPurchaseRequestAction(
  * Supprimer une demande d'achat (uniquement en DRAFT)
  */
 export async function deletePurchaseRequestAction(
-  input: DeletePurchaseRequestInput
+  input: DeletePurchaseRequestInput,
 ): Promise<ActionResponse> {
   try {
     const session = await auth();
@@ -462,8 +376,6 @@ export async function deletePurchaseRequestAction(
 
     // Valider les données
     const validated = deletePurchaseRequestSchema.parse(input);
-
-    // Import dynamique de Prisma
 
     // Vérifier que la demande existe
     const request = await prisma.purchaseRequest.findUnique({

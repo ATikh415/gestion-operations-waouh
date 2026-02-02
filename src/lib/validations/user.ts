@@ -24,7 +24,7 @@ export const createUserSchema = z.object({
     .string()
     .optional()
     .nullable(),
-  isActive: z.boolean().optional().default(true),
+  isActive: z.boolean(),
 });
 
 /**
@@ -40,6 +40,7 @@ export const updateUserSchema = z.object({
     .min(2, "Le nom doit contenir au moins 2 caractères")
     .max(100, "Le nom ne peut pas dépasser 100 caractères")
     .trim(),
+    
   role: z.enum(Role,{ message: "Rôle invalide" }),
   departmentId: z
     .string()
