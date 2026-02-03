@@ -71,7 +71,7 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copie Prisma pour les migrations en production (IMPORTANT pour Prisma 7)
+# Copie Prisma pour les migrations en production
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
@@ -86,6 +86,10 @@ COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
 
 # Rendre le script exécutable
 RUN chmod +x docker-entrypoint.sh
+
+# ✅ NOUVEAU : Donner les permissions d'écriture à /app pour l'utilisateur nextjs
+RUN chown -R nextjs:nodejs /app && \
+    chmod -R 755 /app
 
 # Utilisation de l'utilisateur non-root
 USER nextjs
