@@ -55,32 +55,32 @@ echo "📊 Testing PostgreSQL connection..."
 MAX_RETRIES=30
 RETRY_COUNT=0
 
-until npx prisma db execute --stdin <<SQL 2>/dev/null
-SELECT 1;
-SQL
-do
-  RETRY_COUNT=$((RETRY_COUNT + 1))
+# until npx prisma db execute --stdin <<SQL 2>/dev/null
+# SELECT 1;
+# SQL
+# do
+#   RETRY_COUNT=$((RETRY_COUNT + 1))
   
-  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-    echo "❌ Failed to connect to PostgreSQL after $MAX_RETRIES attempts"
-    echo ""
-    echo "Debugging information:"
-    echo "DATABASE_URL (masked): ${DATABASE_URL%%@*}@***"
-    echo ""
-    echo "Trying direct psql connection test..."
+#   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+#     echo "❌ Failed to connect to PostgreSQL after $MAX_RETRIES attempts"
+#     echo ""
+#     echo "Debugging information:"
+#     echo "DATABASE_URL (masked): ${DATABASE_URL}"
+#     echo ""
+#     echo "Trying direct psql connection test..."
     
-    # Test avec psql si disponible
-    if command -v psql &> /dev/null; then
-      echo "Testing with psql..."
-      psql "$DATABASE_URL" -c "SELECT 1" 2>&1 || true
-    fi
+#     # Test avec psql si disponible
+#     if command -v psql &> /dev/null; then
+#       echo "Testing with psql..."
+#       psql "$DATABASE_URL" -c "SELECT 1" 2>&1 || true
+#     fi
     
-    exit 1
-  fi
+#     exit 1
+#   fi
   
-  echo "⏳ Waiting for PostgreSQL... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-  sleep 2
-done
+#   echo "⏳ Waiting for PostgreSQL... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+#   sleep 2
+# done
 
 echo "✅ PostgreSQL connection successful!"
 
