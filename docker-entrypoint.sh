@@ -17,31 +17,22 @@ fi
 
 echo "✅ DATABASE_URL is configured"
 
-# Support NextAuth v5 (AUTH_*) et v4 (NEXTAUTH_*)
+# Support NextAuth v5
 if [ -n "$AUTH_URL" ]; then
   export NEXTAUTH_URL="$AUTH_URL"
   echo "✅ AUTH_URL: $AUTH_URL (mapped to NEXTAUTH_URL)"
-else
-  echo "✅ NEXTAUTH_URL: ${NEXTAUTH_URL:-not set}"
 fi
 
 if [ -n "$AUTH_SECRET" ]; then
   export NEXTAUTH_SECRET="$AUTH_SECRET"
   echo "✅ AUTH_SECRET: configured (mapped to NEXTAUTH_SECRET)"
-else
-  echo "✅ NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-not set}"
 fi
 
-echo "✅ NODE_ENV: ${NODE_ENV:-not set}"
+echo "✅ NODE_ENV: ${NODE_ENV}"
 
-# ✅ Exporter toutes les variables pour Prisma et Next.js
+# Exporter toutes les variables
 export DATABASE_URL="${DATABASE_URL}"
 export NODE_ENV="${NODE_ENV:-production}"
-export SMTP_HOST="${SMTP_HOST}"
-export SMTP_PORT="${SMTP_PORT}"
-export SMTP_USER="${SMTP_USER}"
-export SMTP_PASS="${SMTP_PASS}"
-export SMTP_FROM="${SMTP_FROM}"
 
 echo ""
 echo "📋 Environment variables exported"
@@ -55,32 +46,31 @@ echo "📊 Testing PostgreSQL connection..."
 MAX_RETRIES=30
 RETRY_COUNT=0
 
-# until npx prisma db execute --stdin <<SQL 2>/dev/null
-# SELECT 1;
-# SQL
-# do
-#   RETRY_COUNT=$((RETRY_COUNT + 1))
+# ✅ Utiliser le chemin complet vers prisma
+PRISMA_CMD="./node_modules/.bin/prisma"
+
+# Vérifier que Prisma existe
+if [ ! -f "$PRISMA_CMD" ]; then
+  echo "❌ Prisma CLI not found at $PRISMA_CMD"
+  echo "Checking node_modules structure:"
+  ls -la node_modules/.bin/ | head -20
+  exit 1
+fi
+
+until $PRISMA_CMD db execute --stdin <<SQL 2>/dev/null
+SELECT 1;
+SQL
+do
+  RETRY_COUNT=$((RETRY_COUNT + 1))
   
-#   if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
-#     echo "❌ Failed to connect to PostgreSQL after $MAX_RETRIES attempts"
-#     echo ""
-#     echo "Debugging information:"
-#     echo "DATABASE_URL (masked): ${DATABASE_URL}"
-#     echo ""
-#     echo "Trying direct psql connection test..."
-    
-#     # Test avec psql si disponible
-#     if command -v psql &> /dev/null; then
-#       echo "Testing with psql..."
-#       psql "$DATABASE_URL" -c "SELECT 1" 2>&1 || true
-#     fi
-    
-#     exit 1
-#   fi
+  if [ $RETRY_COUNT -ge $MAX_RETRIES ]; then
+    echo "❌ Failed to connect to PostgreSQL after $MAX_RETRIES attempts"
+    exit 1
+  fi
   
-#   echo "⏳ Waiting for PostgreSQL... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-#   sleep 2
-# done
+  echo "⏳ Waiting for PostgreSQL... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+  sleep 2
+done
 
 echo "✅ PostgreSQL connection successful!"
 
@@ -89,7 +79,7 @@ echo "✅ PostgreSQL connection successful!"
 # ========================================
 echo ""
 echo "🔧 Generating Prisma Client..."
-npx prisma generate
+$PRISMA_CMD generate
 
 echo "✅ Prisma Client generated"
 
@@ -99,11 +89,10 @@ echo "✅ Prisma Client generated"
 echo ""
 echo "🔄 Running Prisma migrations..."
 
-if npx prisma migrate deploy; then
+if $PRISMA_CMD migrate deploy; then
   echo "✅ Migrations applied successfully"
 else
-  echo "⚠️  Migrations may already be applied or failed"
-  npx prisma migrate status || true
+  echo "⚠️  Migrations may already be applied"
 fi
 
 # ========================================

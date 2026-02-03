@@ -16,17 +16,17 @@ WORKDIR /app
 # =====================================================
 FROM base AS deps
 
-# Copie uniquement les fichiers nécessaires pour installer les dépendances
+# Copie des fichiers de dépendances
 COPY package.json package-lock.json ./
 
-# Copie le schéma Prisma ET le config pour Prisma 7
+# Copie Prisma pour générer le client
 COPY prisma ./prisma/
 COPY prisma.config.ts ./
 
-# Installation des dépendances (production + dev car on a besoin de Prisma CLI)
+# Installation de TOUTES les dépendances (y compris dev pour Prisma CLI)
 RUN npm ci
 
-# Génération du Prisma Client avec le nouveau format
+# Génération du Prisma Client
 RUN npx prisma generate
 
 # =====================================================
@@ -36,7 +36,7 @@ FROM base AS builder
 
 WORKDIR /app
 
-# Copie des node_modules depuis le stage deps
+# Copie des node_modules depuis deps
 COPY --from=deps /app/node_modules ./node_modules
 
 # Copie de tout le code source
@@ -56,40 +56,34 @@ FROM base AS runner
 
 WORKDIR /app
 
-# Configuration de l'environnement de production
+# Configuration de l'environnement
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Création d'un utilisateur non-root pour la sécurité
+# Création d'un utilisateur non-root
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copie des fichiers nécessaires depuis le builder
+# Copie des fichiers Next.js
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copie Prisma pour les migrations en production
+# ✅ CORRECTION : Copier TOUT node_modules (pas juste Prisma)
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# Copie des fichiers Prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-
-# Copie dotenv pour Prisma 7
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 
 # Script de démarrage
 COPY --chown=nextjs:nodejs docker-entrypoint.sh ./
 
-# Rendre le script exécutable
-RUN chmod +x docker-entrypoint.sh
-
-# ✅ NOUVEAU : Donner les permissions d'écriture à /app pour l'utilisateur nextjs
-RUN chown -R nextjs:nodejs /app && \
-    chmod -R 755 /app
+# Permissions
+RUN chmod +x docker-entrypoint.sh && \
+    chown -R nextjs:nodejs /app
 
 # Utilisation de l'utilisateur non-root
 USER nextjs
